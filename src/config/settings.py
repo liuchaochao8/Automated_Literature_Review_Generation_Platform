@@ -4,10 +4,10 @@ from pathlib import Path
 
 class Settings(BaseSettings):
     # LLM
-    anthropic_api_key: str = ""
-    openai_api_key: str = ""
-    llm_provider: str = "anthropic"
-    llm_model: str = "claude-sonnet-4-20250514"
+    deepseek_api_key: str = ""
+    deepseek_base_url: str = "https://api.deepseek.com"
+    llm_provider: str = "deepseek"
+    llm_model: str = "deepseek-v4-flash"
 
     # Academic APIs
     semantic_scholar_api_key: str = ""
@@ -17,6 +17,7 @@ class Settings(BaseSettings):
 
     # App
     log_level: str = "INFO"
+    log_dir: str = "./logs"
     max_papers: int = 50
     max_retries: int = 3
 
