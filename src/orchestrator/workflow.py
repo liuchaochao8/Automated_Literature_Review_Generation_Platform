@@ -68,11 +68,14 @@ class LiteratureReviewWorkflow:
         logger.info("Discovering papers...")
         all_papers = []
         for sq in state["search_queries"]:
-            papers = await self.paper_discovery_agent.discover(sq)
+            papers = await self.paper_discovery_agent.discover(sq, sort_by=state.get("sort_by", "citations"))
             all_papers.extend(papers)
 
         filtered = await self.paper_discovery_agent.filter_by_relevance(all_papers, state["topic"])
-        return {"discovered_papers": all_papers, "filtered_papers": filtered, "progress": {"discover_papers": "done"}}
+
+        # 根据 sort_by 对过滤后的论文排序
+        sorted_filtered = self.paper_discovery_agent.sort_papers(filtered, state.get("sort_by", "citations"))
+        return {"discovered_papers": all_papers, "filtered_papers": sorted_filtered, "progress": {"discover_papers": "done"}}
 
     async def _categorize_papers(self, state: LiteratureReviewState) -> dict:
         logger.info("Categorizing papers...")
@@ -119,21 +122,47 @@ class LiteratureReviewWorkflow:
         logger.info("Finalizing...")
         return {"progress": {"finalize": "done"}}
 
-    async def run(self, topic: str) -> dict[str, Any]:
-        initial_state = self._make_initial_state(topic)
+    async def run(self, topic: str, sort_by: str = "citations") -> dict[str, Any]:
+        initial_state = self._make_initial_state(topic, sort_by)
         result = await self.app.ainvoke(initial_state)
         return result
 
-    async def run_stream(self, topic: str):
+    async def run_stream(self, topic: str, sort_by: str = "citations"):
         """以流式方式运行工作流，每完成一个 agent 就 yield 一次状态。"""
-        initial_state = self._make_initial_state(topic)
+        initial_state = self._make_initial_state(topic, sort_by)
+        accumulated = {}
         async for update in self.app.astream(initial_state, stream_mode="updates"):
             for node_name, output in update.items():
+                accumulated.update(output)
                 yield self._make_stream_event(node_name, output)
 
-    def _make_initial_state(self, topic: str) -> LiteratureReviewState:
+        # 合并所有节点返回的 progress
+        progress = accumulated.get("progress", {})
+        if isinstance(progress, dict):
+            for val in accumulated.values():
+                if isinstance(val, dict) and "progress" in val:
+                    if isinstance(val["progress"], dict):
+                        progress.update(val["progress"])
+
+        # 收集所有步骤的详细信息
+        agent_details = {}
+        review = accumulated.get("review")
+        if hasattr(review, "model_dump"):
+            review = review.model_dump()
+
+        # yield 最终完整结果
+        yield {
+            "agent": "result",
+            "status": "complete",
+            "review": review,
+            "quality_report": accumulated.get("quality_report", ""),
+            "progress": progress,
+        }
+
+    def _make_initial_state(self, topic: str, sort_by: str = "citations") -> LiteratureReviewState:
         return {
             "topic": topic,
+            "sort_by": sort_by,
             "search_queries": [],
             "discovered_papers": [],
             "filtered_papers": [],
@@ -152,41 +181,102 @@ class LiteratureReviewWorkflow:
             "agent": node_name,
             "status": "done",
             "summary": "",
+            "details": [],
         }
 
         if node_name == "expand_queries":
             queries = output.get("search_queries", [])
             count = sum(len(q.expanded_queries) for q in queries)
+            all_queries = []
+            for q in queries:
+                if hasattr(q, "model_dump"):
+                    qd = q.model_dump()
+                    all_queries.extend(qd.get("expanded_queries", []))
+                    all_queries.extend(qd.get("sub_queries", []))
+                else:
+                    all_queries.extend(q.get("expanded_queries", []))
+                    all_queries.extend(q.get("sub_queries", []))
             event["summary"] = f"生成 {count} 组检索词"
+            event["details"] = all_queries[:20]
 
         elif node_name == "discover_papers":
             papers = output.get("filtered_papers", [])
             event["summary"] = f"发现 {len(papers)} 篇相关论文"
+            event["details"] = [
+                {"title": p.title, "year": p.year, "source": p.source, "citations": p.citations}
+                for p in papers[:30]
+            ]
 
         elif node_name == "categorize_papers":
             cats = output.get("paper_categories", {})
             event["summary"] = f"分类 {len(cats)} 篇论文"
+            # 展示各类别的分布
+            method_counts = {}
+            paradigm_counts = {}
+            sub_topics = []
+            for cat in cats.values():
+                if hasattr(cat, "methodology") and cat.methodology:
+                    method_counts[cat.methodology] = method_counts.get(cat.methodology, 0) + 1
+                if hasattr(cat, "research_paradigm") and cat.research_paradigm:
+                    paradigm_counts[cat.research_paradigm] = paradigm_counts.get(cat.research_paradigm, 0) + 1
+                if hasattr(cat, "sub_topic") and cat.sub_topic:
+                    sub_topics.append(cat.sub_topic)
+            details = []
+            for m, c in sorted(method_counts.items(), key=lambda x: -x[1]):
+                details.append(f"方法论-{m}: {c}篇")
+            for p, c in sorted(paradigm_counts.items(), key=lambda x: -x[1]):
+                details.append(f"范式-{p}: {c}篇")
+            for s in set(sub_topics):
+                details.append(f"子主题: {s}")
+            event["details"] = details[:10]
 
         elif node_name == "extract_information":
             exts = output.get("paper_extractions", {})
             event["summary"] = f"提取 {len(exts)} 篇论文信息"
+            details = []
+            for pid, ext in list(exts.items())[:10]:
+                prefix = pid.split(":")[-1][:20]
+                if hasattr(ext, "research_question") and ext.research_question:
+                    details.append(f"[{prefix}] 问题: {ext.research_question[:80]}")
+                if hasattr(ext, "methodology") and ext.methodology:
+                    details.append(f"[{prefix}] 方法: {ext.methodology[:80]}")
+                if hasattr(ext, "datasets") and ext.datasets:
+                    ds = ext.datasets[:3] if isinstance(ext.datasets, list) else [ext.datasets]
+                    details.append(f"[{prefix}] 数据: {', '.join(str(d)[:40] for d in ds)}")
+            event["details"] = details[:15]
 
         elif node_name == "analyze_relationships":
             rels = output.get("relations", [])
             event["summary"] = f"发现 {len(rels)} 组论文关系"
+            event["details"] = [
+                {
+                    "source_id": r.source_id[:20] + "..." if len(r.source_id) > 20 else r.source_id,
+                    "target_id": r.target_id[:20] + "..." if len(r.target_id) > 20 else r.target_id,
+                    "type": r.relation_type,
+                    "description": r.description[:100] if r.description else "",
+                }
+                for r in rels[:20]
+            ]
 
         elif node_name == "synthesize_review":
             review = output.get("review")
             if review:
                 event["summary"] = f"生成综述: {review.title[:60]}"
+                event["details"] = [s.title for s in review.sections[:10]]
             else:
                 event["summary"] = "综述撰写完成"
 
         elif node_name == "format_references":
-            event["summary"] = "引用格式化完成"
+            review = output.get("review")
+            refs = review.references if hasattr(review, "references") else []
+            event["summary"] = f"引用格式化完成 ({len(refs)} 条参考文献)"
+            event["details"] = [r[:120] for r in refs[:10]]
 
         elif node_name == "quality_check":
+            report = output.get("quality_report", "")
             event["summary"] = "质量控制检查完成"
+            if report:
+                event["details"] = report[:200]
 
         elif node_name == "finalize":
             event["summary"] = "综述生成完毕"

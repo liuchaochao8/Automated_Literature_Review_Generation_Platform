@@ -1,35 +1,45 @@
 import xml.etree.ElementTree as ET
 import httpx
 import logging
-from typing import Optional
-from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
+from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception
 from src.models.schemas import Paper, Author
 
 logger = logging.getLogger(__name__)
 
-ARXIV_BASE = "http://export.arxiv.org/api/query"
-SEMANTIC_SCHOLAR_BASE = "https://api.semanticscholar.org/graph/v1"
+ARXIV_BASE = "https://export.arxiv.org/api/query"
+OPENALEX_BASE = "https://api.openalex.org/works"
 CROSSREF_BASE = "https://api.crossref.org/works"
 
+
+def _should_retry(exc: BaseException) -> bool:
+    """服务端错误（502/503）和超时重试；429 限频不重试，直接跳过。"""
+    if isinstance(exc, httpx.TimeoutException):
+        return True
+    if isinstance(exc, httpx.HTTPStatusError):
+        return exc.response.status_code != 429
+    return False
+
+
 RETRY_HTTP = dict(
-    stop=stop_after_attempt(3),
-    wait=wait_exponential(multiplier=1, min=2, max=10),
-    retry=retry_if_exception_type((httpx.HTTPStatusError, httpx.TimeoutException)),
+    stop=stop_after_attempt(2),
+    wait=wait_exponential(multiplier=1, min=1, max=5),
+    retry=retry_if_exception(_should_retry),
     reraise=True,
 )
 
 
 @retry(**RETRY_HTTP)
-async def search_arxiv(query: str, max_results: int = 20) -> list[Paper]:
+async def search_arxiv(query: str, max_results: int = 20, sort_by: str = "submittedDate") -> list[Paper]:
     """Search arXiv via OAI-PMH API."""
     params = {
         "search_query": f"all:{query}",
         "max_results": min(max_results, 100),
-        "sortBy": "relevance",
+        "sortBy": sort_by,
         "sortOrder": "descending",
     }
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(ARXIV_BASE, params=params)
+    headers = {"User-Agent": "AutomatedLiteratureReview/1.0 (https://github.com/liuchaochao8/Automated_Literature_Review_Generation_Platform; mailto:)"}
+    async with httpx.AsyncClient(timeout=8.0, follow_redirects=True) as client:
+        resp = await client.get(ARXIV_BASE, params=params, headers=headers)
         resp.raise_for_status()
 
     ns = {"atom": "http://www.w3.org/2005/Atom"}
@@ -63,49 +73,56 @@ async def search_arxiv(query: str, max_results: int = 20) -> list[Paper]:
 
 
 @retry(**RETRY_HTTP)
-async def search_semantic_scholar(query: str, max_results: int = 20, api_key: Optional[str] = None) -> list[Paper]:
-    """Search Semantic Scholar API."""
-    from src.config.settings import settings
-
-    headers = {}
-    if api_key or settings.semantic_scholar_api_key:
-        headers["x-api-key"] = api_key or settings.semantic_scholar_api_key
-
+async def search_openalex(query: str, max_results: int = 20) -> list[Paper]:
+    """Search OpenAlex API（免费，不限频，含引用数）。"""
     params = {
-        "query": query,
-        "limit": min(max_results, 100),
-        "fields": "title,abstract,year,authors,externalIds,citationCount,url",
+        "search": query,
+        "per_page": min(max_results, 100),
+        "sort": "cited_by_count:desc",
+        "select": "id,title,authorships,publication_year,cited_by_count,primary_location,doi,abstract_inverted_index",
     }
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
-        resp = await client.get(
-            f"{SEMANTIC_SCHOLAR_BASE}/paper/search",
-            params=params,
-            headers=headers,
-        )
+    async with httpx.AsyncClient(timeout=15.0) as client:
+        resp = await client.get(OPENALEX_BASE, params=params)
         resp.raise_for_status()
 
     data = resp.json()
     papers = []
-    for item in data.get("data", []):
-        authors = [Author(name=a.get("name", "")) for a in item.get("authors", [])]
-        paper_id = f"semantic_scholar:{item.get('paperId', '')}"
-        ext_ids = item.get("externalIds", {})
-        doi = ext_ids.get("DOI")
+    for item in data.get("results", []):
+        authors = []
+        for a in item.get("authorships", []):
+            name = a.get("author", {}).get("display_name", "")
+            if name:
+                authors.append(Author(name=name))
+
+        # OpenAlex 的摘要用倒排索引编码，需要还原
+        inv_index = item.get("abstract_inverted_index")
+        abstract = _restore_abstract(inv_index) if inv_index else ""
+
+        doi = item.get("doi", "").replace("https://doi.org/", "") if item.get("doi") else None
 
         papers.append(Paper(
-            id=paper_id,
+            id=f"openalex:{item['id'].split('/')[-1]}",
             title=item.get("title", ""),
             authors=authors,
-            abstract=item.get("abstract") or "",
-            year=item.get("year"),
-            source="semantic_scholar",
-            url=item.get("url"),
+            abstract=abstract,
+            year=item.get("publication_year"),
+            source="openalex",
             doi=doi,
-            citations=item.get("citationCount", 0),
+            citations=item.get("cited_by_count", 0),
         ))
 
     return papers
+
+
+def _restore_abstract(inv_index: dict) -> str:
+    """将 OpenAlex 的倒排索引摘要还原为文本。"""
+    word_positions = []
+    for word, positions in inv_index.items():
+        for pos in positions:
+            word_positions.append((pos, word))
+    word_positions.sort(key=lambda x: x[0])
+    return " ".join(w for _, w in word_positions)
 
 
 @retry(**RETRY_HTTP)
@@ -113,7 +130,7 @@ async def search_crossref(query: str, max_results: int = 20) -> list[Paper]:
     """Search CrossRef API."""
     params = {"query": query, "rows": min(max_results, 100), "sort": "relevance"}
 
-    async with httpx.AsyncClient(timeout=30.0) as client:
+    async with httpx.AsyncClient(timeout=15.0) as client:
         resp = await client.get(CROSSREF_BASE, params=params)
         resp.raise_for_status()
 
@@ -166,22 +183,23 @@ def deduplicate_papers(papers: list[Paper]) -> list[Paper]:
     return result
 
 
-async def search_all_sources(query: str, max_results: int = 20) -> list[Paper]:
+async def search_all_sources(query: str, max_results: int = 20, arxiv_sort: str = "submittedDate") -> list[Paper]:
     """并行搜索所有学术数据源。"""
     import asyncio
 
-    tasks = [
-        search_arxiv(query, max_results),
-        search_semantic_scholar(query, max_results),
-        search_crossref(query, max_results),
+    sources = [
+        ("arxiv", search_arxiv(query, max_results, sort_by=arxiv_sort)),
+        ("openalex", search_openalex(query, max_results)),
+        ("crossref", search_crossref(query, max_results)),
     ]
 
-    results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = await asyncio.gather(*[t[1] for t in sources], return_exceptions=True)
 
     all_papers = []
-    for r in results:
+    for (name, _), r in zip(sources, results):
         if isinstance(r, Exception):
-            logger.info(f"Search source unavailable (will try other sources): {r}")
+            reason = str(r) or type(r).__name__
+            logger.info(f"Search source unavailable ({name}): {reason[:120]}")
             continue
         all_papers.extend(r)
 

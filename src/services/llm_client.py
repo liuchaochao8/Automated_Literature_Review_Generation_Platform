@@ -1,4 +1,5 @@
 from typing import Optional
+import httpx
 from tenacity import retry, stop_after_attempt, wait_exponential
 from openai import AsyncOpenAI
 from src.config.settings import settings
@@ -15,6 +16,7 @@ class LLMClient:
             self._client = AsyncOpenAI(
                 api_key=settings.deepseek_api_key,
                 base_url=settings.deepseek_base_url,
+                timeout=httpx.Timeout(120.0, connect=15.0),
             )
         return self._client
 

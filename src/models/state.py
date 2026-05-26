@@ -32,5 +32,6 @@ class LiteratureReviewState(TypedDict):
     quality_report: str
 
     # Control
+    sort_by: str  # "citations", "newest", "relevance"
     errors: list[str]
     progress: dict[str, str]

@@ -128,24 +128,42 @@ class SynthesisAgent:
         lines = markdown.split("\n")
         sections = []
         current_section = None
-        current_content = []
+        current_subsection = None
+        section_content = []  # 只存放第一个 ### 之前的内容
+        sub_content = []
+        seen_subsection = False
 
         for line in lines:
             if line.startswith("## "):
+                # save previous section + subsection
                 if current_section:
-                    current_section.content = "\n".join(current_content).strip()
+                    if current_subsection:
+                        current_subsection.content = "\n".join(sub_content).strip()
+                    current_section.content = "\n".join(section_content).strip()
                     sections.append(current_section)
                 current_section = ReviewSection(title=line.strip("#").strip(), content="")
-                current_content = []
+                current_subsection = None
+                section_content = []
+                sub_content = []
+                seen_subsection = False
             elif line.startswith("### ") and current_section:
-                current_section.subsections.append(
-                    ReviewSection(title=line.strip("#").strip(), content="")
-                )
+                # save previous subsection content
+                if current_subsection:
+                    current_subsection.content = "\n".join(sub_content).strip()
+                current_subsection = ReviewSection(title=line.strip("#").strip(), content="")
+                current_section.subsections.append(current_subsection)
+                sub_content = []
+                seen_subsection = True
             else:
-                current_content.append(line)
+                if not seen_subsection:
+                    section_content.append(line)
+                else:
+                    sub_content.append(line)
 
         if current_section:
-            current_section.content = "\n".join(current_content).strip()
+            if current_subsection:
+                current_subsection.content = "\n".join(sub_content).strip()
+            current_section.content = "\n".join(section_content).strip()
             sections.append(current_section)
 
         return sections

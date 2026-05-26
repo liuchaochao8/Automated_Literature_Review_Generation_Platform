@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 from src.models.schemas import Paper, SearchQuery
@@ -12,16 +13,20 @@ class PaperDiscoveryAgent:
     def __init__(self):
         self.llm = LLMClient()
 
-    async def discover(self, search_query: SearchQuery) -> list[Paper]:
+    async def discover(self, search_query: SearchQuery, sort_by: str = "citations") -> list[Paper]:
         all_queries = search_query.expanded_queries + search_query.sub_queries
         seen_ids = set()
         papers = []
 
-        for query in all_queries:
+        arxiv_sort = "relevance" if sort_by == "relevance" else "submittedDate"
+
+        for i, query in enumerate(all_queries):
             if len(papers) >= settings.max_papers:
                 break
+            if i > 0:
+                await asyncio.sleep(0.3)  # 请求间隔，避免 API 限频
             try:
-                results = await search_all_sources(query, max_results=10)
+                results = await search_all_sources(query, max_results=10, arxiv_sort=arxiv_sort)
                 for p in results:
                     if p.id not in seen_ids:
                         seen_ids.add(p.id)
@@ -30,7 +35,7 @@ class PaperDiscoveryAgent:
                 logger.warning(f"Search failed for query '{query}': {e}")
                 continue
 
-        return papers[:settings.max_papers]
+        return self.sort_papers(papers[:settings.max_papers], sort_by)
 
     async def filter_by_relevance(self, papers: list[Paper], topic: str) -> list[Paper]:
         if not papers:
@@ -55,3 +60,18 @@ Papers:
         except Exception as e:
             logger.warning(f"Relevance filtering failed: {e}")
             return papers
+
+    @staticmethod
+    def sort_papers(papers: list[Paper], sort_by: str = "citations") -> list[Paper]:
+        if sort_by == "relevance":
+            return papers
+
+        if sort_by == "newest":
+            return sorted(papers, key=lambda p: p.year or 0, reverse=True)
+
+        # "citations": 按引用数降序，引用相同的按年份降序
+        return sorted(
+            papers,
+            key=lambda p: (p.citations or 0, p.year or 0),
+            reverse=True,
+        )
