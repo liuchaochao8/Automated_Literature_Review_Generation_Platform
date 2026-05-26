@@ -36,7 +36,7 @@ pip install -e ".[dev]"
 在 `.env` 中设置 API key（已预填）：
 
 ```env
-DEEPSEEK_API_KEY=sk-a22cf174fa5f4d4dad608324f7c3a1a9
+DEEPSEEK_API_KEY=your_deepseek_api_key_here
 ```
 
 ### 3. 启动 API
