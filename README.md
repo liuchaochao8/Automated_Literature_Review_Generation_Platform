@@ -1,3 +1,12 @@
+---
+title: Automated Literature Review Generation Platform
+emoji: 📚
+colorFrom: blue
+colorTo: indigo
+sdk: docker
+pinned: false
+---
+
 # 自动化文献综述生成平台
 
 输入一个研究主题，系统通过 8 个 AI Agent 自动完成文献检索、分类、信息提取、关系分析和综述撰写，最终输出结构化 JSON 或可编译的 LaTeX 文档。
@@ -160,13 +169,7 @@ curl -X POST "http://localhost:8000/api/review/latex" \
 
 ## Agent 工作流可视化
 
-打开前端后，生成综述过程中 8 个 Agent 卡片实时更新状态：
-
-```
-⏸️等待中 → ⏳执行中（显示摘要）→ ✅已完成
-```
-
-卡片颜色变化：灰色（等待）→ 橙色（执行）→ 绿色（完成），每个卡片底部显示当前 Agent 的执行摘要（如"发现 15 篇相关论文"、"生成 5 组检索词"）。
+打开前端后，生成综述过程中 8 个 Agent 状态实时更新。
 
 ## 项目结构
 
@@ -187,7 +190,7 @@ Automated_Literature_Review_Generation_Platform/
 │   │
 │   ├── services/
 │   │   ├── llm_client.py               # DeepSeek LLM 客户端（tenacity 重试）
-│   │   ├── academic_apis.py            # arXiv / Semantic Scholar / CrossRef 搜索 + 去重
+│   │   ├── academic_apis.py            # arXiv / OpenAlex / CrossRef 搜索 + 去重
 │   │   ├── vector_store.py             # ChromaDB 向量存储（cosine 检索）
 │   │   ├── graph_store.py              # NetworkX 引用关系有向图
 │   │   ├── latex_export.py             # LaTeX 源码递归生成
@@ -222,18 +225,6 @@ Automated_Literature_Review_Generation_Platform/
     └── superpowers/
         ├── plans/                      # 实现计划文档
         └── skills/                     # Superpowers 技能定义
-```
-
-## 测试
-
-```bash
-# 运行全部测试
-pytest tests/ -v
-
-# 运行特定模块
-pytest tests/test_agents/ -v
-pytest tests/test_services/ -v
-pytest tests/test_orchestrator/ -v
 ```
 
 ## 注意事项
