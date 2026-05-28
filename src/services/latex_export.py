@@ -62,12 +62,17 @@ def content_to_latex(content: str) -> str:
     return "\n\n".join(paragraphs)
 
 
+def _strip_number(title: str) -> str:
+    """去掉标题开头的 '1. ', '2.1 ' 等编号——LaTeX 的 section 命令会自动编号。"""
+    return re.sub(r'^\d+(?:\.\d+)*\s+', '', title)
+
+
 def section_to_latex(section, level: int = 1) -> str:
     """将 ReviewSection 递归转为 LaTeX"""
     lines = []
     cmd = "section" if level == 1 else "subsection" if level == 2 else "subsubsection"
 
-    title = escape_latex(section.title)
+    title = escape_latex(_strip_number(section.title))
 
     lines.append(f"\\{cmd}{{{title}}}")
     if section.content:
@@ -108,17 +113,6 @@ def review_to_latex(review: LiteratureReview) -> str:
 
     for section in review.sections:
         parts.append(section_to_latex(section))
-
-    if review.references:
-        ref_items = "\n".join(
-            f"\\bibitem{{{i + 1}}} {escape_latex(r.replace(chr(10), ' ').replace(chr(13), ' '))}"
-            for i, r in enumerate(review.references)
-        )
-        parts.append(
-            f"\\begin{{thebibliography}}{{{len(review.references)}}}\n\n"
-            f"{ref_items}\n\n"
-            f"\\end{{thebibliography}}"
-        )
 
     parts.append(LATEX_POSTAMBLE)
     return "\n\n".join(parts)

@@ -16,21 +16,23 @@ class ReferenceAgent:
         return " ".join(p for p in parts if p)
 
     def format_ieee(self, paper: Paper) -> str:
-        author_list = []
-        for a in paper.authors:
-            name_parts = a.name.split()
-            if len(name_parts) >= 2:
-                formatted = f"{name_parts[0][0]}. {' '.join(name_parts[1:])}"
-            else:
-                formatted = a.name
-            author_list.append(formatted)
-
-        authors_str = ", ".join(author_list)
         year = paper.year or "n.d."
         title = paper.title
         source = paper.source.upper() if paper.source != "unknown" else ""
 
-        return f"{authors_str}, \"{title},\" {source}, {year}."
+        if paper.authors:
+            author_list = []
+            for a in paper.authors:
+                name_parts = a.name.split()
+                if len(name_parts) >= 2:
+                    formatted = f"{name_parts[0][0]}. {' '.join(name_parts[1:])}"
+                else:
+                    formatted = a.name
+                author_list.append(formatted)
+            authors_str = ", ".join(author_list)
+            return f"{authors_str}, \"{title},\" {source}, {year}."
+        else:
+            return f"\"{title},\" {source}, {year}."
 
     def _format_author_apa(self, name: str) -> str:
         parts = name.split()
