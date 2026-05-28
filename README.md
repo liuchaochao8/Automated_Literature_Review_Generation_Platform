@@ -11,18 +11,24 @@ pinned: false
 
 输入一个研究主题，系统通过 8 个 AI Agent 自动完成文献检索、分类、信息提取、关系分析和综述撰写，最终输出结构化 JSON 或可编译的 LaTeX 文档。
 
+---
+
+👉 在线体验：https://huggingface.co/spaces/genius-lc/Automated_Literature_Review_Generation_Platform
+
+---
+
 ## 技术栈
 
-| 组件 | 技术 |
-|------|------|
-| 语言模型 | DeepSeek V4 Flash（OpenAI 兼容 SDK） |
-| Agent 编排 | LangGraph（StateGraph + 条件边 + 流式更新） |
-| API 服务 | FastAPI（REST + SSE 流式） |
-| 前端界面 | Streamlit（Agent 流水线可视化） |
-| 向量存储 | ChromaDB（论文嵌入与相似度检索） |
-| 引用图谱 | NetworkX（DiGraph 关系分析） |
+| 组件       | 技术                                             |
+| ---------- | ------------------------------------------------ |
+| 语言模型   | DeepSeek V4 Flash（OpenAI 兼容 SDK）             |
+| Agent 编排 | LangGraph（StateGraph + 条件边 + 流式更新）      |
+| API 服务   | FastAPI（REST + SSE 流式）                       |
+| 前端界面   | Streamlit（Agent 流水线可视化）                  |
+| 向量存储   | ChromaDB（论文嵌入与相似度检索）                 |
+| 引用图谱   | NetworkX（DiGraph 关系分析）                     |
 | 学术数据源 | arXiv OAI-PMH / OpenAlex API / CrossRef REST API |
-| 文档导出 | LaTeX（`\section` / `\subsection` 递归生成） |
+| 文档导出   | LaTeX（`\section` / `\subsection` 递归生成）     |
 
 ## 架构
 
@@ -45,16 +51,16 @@ QueryExpansionAgent  →  PaperDiscoveryAgent  →  CategorizationAgent
 
 ### Agent 职责
 
-| Agent | 输入 | 输出 |
-|-------|------|------|
-| **QueryExpansionAgent** | 用户主题 | 多组扩展检索词（子查询 + 同义词） |
-| **PaperDiscoveryAgent** | 检索词 | 多库并行搜索 + LLM 相关性评分（阈值 0.3） |
-| **CategorizationAgent** | 论文列表 | 方法论 / 时间线 / 范式 / 影响力分类 |
-| **ExtractionAgent** | 论文 | 研究问题、方法、数据集、关键结果、局限性 |
-| **ComparisonAgent** | 论文对 | 5 类关系：继承/对比/矛盾/扩展/并行 |
-| **SynthesisAgent** | 以上全部 | 带章节结构的综述正文（Markdown → ReviewSection） |
-| **ReferenceAgent** | 综述 + 论文 | APA / IEEE 格式引用列表 |
-| **QualityAgent** | 综述 + 论文 | 事实一致性检查 + 结构完整性检查 |
+| Agent                   | 输入        | 输出                                             |
+| ----------------------- | ----------- | ------------------------------------------------ |
+| **QueryExpansionAgent** | 用户主题    | 多组扩展检索词（子查询 + 同义词）                |
+| **PaperDiscoveryAgent** | 检索词      | 多库并行搜索 + LLM 相关性评分（阈值 0.3）        |
+| **CategorizationAgent** | 论文列表    | 方法论 / 时间线 / 范式 / 影响力分类              |
+| **ExtractionAgent**     | 论文        | 研究问题、方法、数据集、关键结果、局限性         |
+| **ComparisonAgent**     | 论文对      | 5 类关系：继承/对比/矛盾/扩展/并行               |
+| **SynthesisAgent**      | 以上全部    | 带章节结构的综述正文（Markdown → ReviewSection） |
+| **ReferenceAgent**      | 综述 + 论文 | APA / IEEE 格式引用列表                          |
+| **QualityAgent**        | 综述 + 论文 | 事实一致性检查 + 结构完整性检查                  |
 
 质量控制节点为条件边：若检测到严重问题（`"critical"` 关键词），自动回退到合成阶段重新生成。
 
@@ -80,12 +86,12 @@ DEEPSEEK_API_KEY=your_deepseek_api_key_here
 >
 > 可选配置项（`.env`）：
 >
-> | 变量 | 默认值 | 说明 |
-> |------|--------|------|
-> | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API 端点 |
-> | `LLM_MODEL` | `deepseek-v4-flash` | 模型名称 |
-> | `LOG_LEVEL` | `INFO` | 日志级别 |
-> | `MAX_PAPERS` | `50` | 最大论文数 |
+> | 变量                | 默认值                     | 说明       |
+> | ------------------- | -------------------------- | ---------- |
+> | `DEEPSEEK_BASE_URL` | `https://api.deepseek.com` | API 端点   |
+> | `LLM_MODEL`         | `deepseek-v4-flash`        | 模型名称   |
+> | `LOG_LEVEL`         | `INFO`                     | 日志级别   |
+> | `MAX_PAPERS`        | `50`                       | 最大论文数 |
 
 ### 3. 启动 API 服务
 
@@ -131,39 +137,39 @@ curl -X POST "http://localhost:8000/api/review/latex" \
 
 ## API 接口
 
-| 方法 | 路径 | 说明 |
-|------|------|------|
-| `GET` | `/health` | 健康检查 |
-| `POST` | `/api/review` | 完整综述生成，返回 JSON |
+| 方法   | 路径                 | 说明                            |
+| ------ | -------------------- | ------------------------------- |
+| `GET`  | `/health`            | 健康检查                        |
+| `POST` | `/api/review`        | 完整综述生成，返回 JSON         |
 | `POST` | `/api/review/stream` | SSE 流式接口，逐 agent 推送状态 |
-| `POST` | `/api/review/latex` | LaTeX 格式导出 |
+| `POST` | `/api/review/latex`  | LaTeX 格式导出                  |
 
 ### SSE 事件格式
 
 流式接口推送的每行数据格式为 `data: {json}\n\n`，事件类型：
 
-| agent 字段 | 说明 |
-|-----------|------|
-| `start` | 开始生成 |
-| `expand_queries` | 检索词扩展完成 |
-| `discover_papers` | 论文发现完成 |
-| `categorize_papers` | 论文分类完成 |
-| `extract_information` | 信息提取完成 |
-| `analyze_relationships` | 关系分析完成 |
-| `synthesize_review` | 综述撰写完成 |
-| `format_references` | 引用格式化完成 |
-| `quality_check` | 质量控制完成 |
-| `result` | 完整综述结果（含 review / quality_report / progress） |
+| agent 字段              | 说明                                                  |
+| ----------------------- | ----------------------------------------------------- |
+| `start`                 | 开始生成                                              |
+| `expand_queries`        | 检索词扩展完成                                        |
+| `discover_papers`       | 论文发现完成                                          |
+| `categorize_papers`     | 论文分类完成                                          |
+| `extract_information`   | 信息提取完成                                          |
+| `analyze_relationships` | 关系分析完成                                          |
+| `synthesize_review`     | 综述撰写完成                                          |
+| `format_references`     | 引用格式化完成                                        |
+| `quality_check`         | 质量控制完成                                          |
+| `result`                | 完整综述结果（含 review / quality_report / progress） |
 
 每个事件包含 `agent`、`status`、`summary` 字段，前端据此更新 Agent 卡片状态。
 
 ## 日志与持久化
 
-| 内容 | 路径 | 格式 |
-|------|------|------|
-| 运行日志 | `logs/api_YYYYMMDD_HHMMSS.log` | 文本日志 |
-| 生成综述（JSON） | `logs/reviews/YYYYMMDD_HHMMSS_topic.json` | JSON |
-| 生成综述（LaTeX） | `logs/reviews/YYYYMMDD_HHMMSS_topic.tex` | LaTeX |
+| 内容              | 路径                                      | 格式     |
+| ----------------- | ----------------------------------------- | -------- |
+| 运行日志          | `logs/api_YYYYMMDD_HHMMSS.log`            | 文本日志 |
+| 生成综述（JSON）  | `logs/reviews/YYYYMMDD_HHMMSS_topic.json` | JSON     |
+| 生成综述（LaTeX） | `logs/reviews/YYYYMMDD_HHMMSS_topic.tex`  | LaTeX    |
 
 三种调用方式（REST / 流式 / LaTeX）均会自动保存生成的综述到 `logs/reviews/` 目录。
 
